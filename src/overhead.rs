@@ -65,16 +65,17 @@ pub async fn update(
         }
     };
 
-    let overhead = match overhead_inspect(&l1_provider, log.transaction_hash.unwrap()).await {
-        Some(overhead) => overhead,
-        None => {
-            log::info!(
-                "overhead is none, skip update, tx_hash ={:#?}",
-                log.transaction_hash.unwrap()
-            );
-            return;
-        }
-    };
+    let overhead =
+        match overhead_inspect(&l1_provider, log.transaction_hash.unwrap(), U64::from(100)).await {
+            Some(overhead) => overhead,
+            None => {
+                log::info!(
+                    "overhead is none, skip update, tx_hash ={:#?}",
+                    log.transaction_hash.unwrap()
+                );
+                return;
+            }
+        };
 
     // Step2. fetch current overhead on l2.
     let current_overhead = match l2_oracle.overhead().await {
@@ -107,7 +108,11 @@ pub async fn update(
     }
 }
 
-async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<usize> {
+async fn overhead_inspect(
+    l1_provider: &Provider<Http>,
+    txHash: TxHash,
+    blockNum: U64,
+) -> Option<usize> {
     let txn_per_block_expect: f64 = var("TXN_PER_BLOCK")
         .expect("Cannot detect TXN_PER_BLOCK env var")
         .parse()
@@ -118,7 +123,7 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
         .expect("Cannot parse TXN_PER_BATCH env var");
 
     //Step1.  Get transaction
-    let result = l1_provider.get_transaction(hash).await;
+    let result = l1_provider.get_transaction(txHash).await;
     let tx = match result {
         Ok(Some(tx)) => tx,
         Ok(None) => {
@@ -131,9 +136,9 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
         }
     };
 
-    log::info!("rollup tx hash: {:#?}", hash);
+    log::info!("rollup tx hash: {:#?}", txHash);
     let blob_tx: Option<Value> =
-        blob_client::query_blob_tx(hex::encode_prefixed(hash).as_str()).await;
+        blob_client::query_blob_tx(hex::encode_prefixed(txHash).as_str()).await;
     let blob_block: Option<Value> =
         blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await;
 
@@ -147,7 +152,17 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
 
     let indexes: Vec<u64> = indexed_hashs.iter().map(|item| item.index).collect();
 
-    let res = blob_client::query_side_car(4481512, indexes).await.unwrap();
+    let next_block = blob_client::query_block_by_num((blockNum + 1).as_u64())
+        .await
+        .unwrap();
+    // log::error!("next_block: {:?}", next_block);
+
+    let res = blob_client::query_side_car(
+        next_block["result"]["parentBeaconBlockRoot"].as_str().unwrap().to_string(),
+        indexes,
+    )
+    .await
+    .unwrap();
 
     log::info!("kzg_commitment ={:#?}", &res["data"][0]["kzg_commitment"]);
 
@@ -155,7 +170,7 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
     let bytes = hex::decode(blob_value.as_str().unwrap()).unwrap(); // Vec<u8>
 
     // let bytes: Vec<u8> = Vec::from_hex(blob_value.as_str().unwrap()).unwrap();
-    log::error!("Blob len: {:?}",bytes.len());
+    log::error!("Blob len: {:?}", bytes.len());
 
     if bytes.len() != 131072 {
         log::error!("Invalid length for Blob");
@@ -165,6 +180,8 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
     let array: [u8; 131072] = bytes.try_into().expect("Invalid length");
     let blob = Blob(array);
     let tx_payload = blob.decode_raw_tx_payload().unwrap();
+    log::info!("decode_raw_tx_payload end");
+
     let data_gas = data_gas_cost(&tx_payload);
 
     let txs: Vec<TypedTransaction> = decode_transactions(&tx_payload);
@@ -434,43 +451,49 @@ async fn test_overhead_inspect() {
     } else {
         U64::from(1)
     };
-    // let filter = l1_rollup
-    //     .commit_batch_filter()
-    //     .filter
-    //     .from_block(start)
-    //     .address(l1_rollup.address());
+    let filter = l1_rollup
+        .commit_batch_filter()
+        .filter
+        .from_block(start)
+        .address(l1_rollup.address());
 
-    // let mut logs: Vec<Log> = match l1_provider.get_logs(&filter).await {
-    //     Ok(logs) => logs,
-    //     Err(e) => {
-    //         log::error!("overhead.l1_provider.get_logs error: {:#?}", e);
-    //         return;
-    //     }
-    // };
-    // log::info!(
-    //     "overhead.l1_provider.submit_batches.get_logs.len ={:#?}",
-    //     logs.len()
-    // );
+    let mut logs: Vec<Log> = match l1_provider.get_logs(&filter).await {
+        Ok(logs) => logs,
+        Err(e) => {
+            log::error!("overhead.l1_provider.get_logs error: {:#?}", e);
+            return;
+        }
+    };
+    log::info!(
+        "overhead.l1_provider.submit_batches.get_logs.len ={:#?}",
+        logs.len()
+    );
 
-    // logs.retain(|x| x.transaction_hash != None && x.block_number != None);
-    // if logs.is_empty() {
-    //     log::warn!("rollup logs for the last 100 blocks of l1 is empty");
-    //     return;
-    // }
-    // logs.sort_by(|a, b| b.block_number.unwrap().cmp(&a.block_number.unwrap()));
-    // let log = match logs.first() {
-    //     Some(log) => log,
-    //     None => {
-    //         log::info!("no submit batches logs, latest blocknum ={:#?}", latest);
-    //         return;
-    //     }
-    // };
+    logs.retain(|x| x.transaction_hash != None && x.block_number != None);
+    if logs.is_empty() {
+        log::warn!("rollup logs for the last 100 blocks of l1 is empty");
+        return;
+    }
+    logs.sort_by(|a, b| b.block_number.unwrap().cmp(&a.block_number.unwrap()));
+    let log = match logs.first() {
+        Some(log) => log,
+        None => {
+            log::info!("no submit batches logs, latest blocknum ={:#?}", latest);
+            return;
+        }
+    };
 
     let test_hash =
         TxHash::from_str("0xff6546936f2e095e214c1e1b3bb8bfc7751524948e3af70c7811a9769ca026d9")
             .unwrap();
 
-    let overhead = match overhead_inspect(&l1_provider, test_hash).await {
+    let overhead = match overhead_inspect(
+        &l1_provider,
+        log.transaction_hash.unwrap(),
+        log.block_number.unwrap(),
+    )
+    .await
+    {
         Some(overhead) => overhead,
         None => {
             log::info!(

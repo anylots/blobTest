@@ -76,8 +76,45 @@ pub async fn query_block(hash: &str) -> Option<Value> {
     }
 }
 
-pub async fn query_side_car(slot: u128, indexes: Vec<u64>) -> Option<Value> {
-    let rt = tokio::task::spawn_blocking(move || query_beacon_node(slot, indexes))
+pub async fn query_block_by_num(num: u64) -> Option<Value> {
+    let params: serde_json::Value = json!([format!("0x{:X}", num), true]);
+
+    let rt = tokio::task::spawn_blocking(move || {
+        query_execution_node(&json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": params,
+            "id": 1,
+        }))
+    })
+    .await
+    .unwrap();
+
+    match rt {
+        Some(info) => {
+            // log::info!("query_block = {:?}", info);
+
+            match serde_json::from_str::<Value>(&info) {
+                Ok(parsed) => return Some(parsed),
+                Err(_) => {
+                    log::error!("deserialize query_block failed, blockNum= {:?}", num);
+                    return None;
+                }
+            };
+            // log::info!(
+            //     "blobVersionedHashes: {:#?}",
+            //     block["result"]["blobVersionedHashes"]
+            // );
+        }
+        None => {
+            log::error!("query ransaction failed");
+            return None;
+        }
+    }
+}
+
+pub async fn query_side_car(slot: String, indexes: Vec<u64>) -> Option<Value> {
+    let rt = tokio::task::spawn_blocking(move || query_beacon_node(slot.as_str(), indexes))
         .await
         .unwrap();
 
@@ -86,7 +123,7 @@ pub async fn query_side_car(slot: u128, indexes: Vec<u64>) -> Option<Value> {
             match serde_json::from_str::<Value>(&info) {
                 Ok(parsed) => return Some(parsed),
                 Err(_) => {
-                    log::error!("deserialize query_transaction failed, slot= {:?}", slot);
+                    log::error!("deserialize query_side_car failed",);
                     return None;
                 }
             };
@@ -138,7 +175,7 @@ pub fn query_execution_node(param: &serde_json::Value) -> Option<String> {
     Some(rt_text)
 }
 
-pub fn query_beacon_node(slot: u128, indexes: Vec<u64>) -> Option<String> {
+pub fn query_beacon_node(slot: &str, indexes: Vec<u64>) -> Option<String> {
     let l1_beacon_rpc =
         var("GAS_ORACLE_L1_BEACON_RPC").expect("Cannot detect GAS_ORACLE_L1_RPC env var");
 
@@ -235,7 +272,10 @@ async fn test_query_block() {
 
     match rt {
         Some(info) => {
-            log::info!("transactions: {:#?}", info["result"]["transactions"].as_array().unwrap());
+            log::info!(
+                "transactions: {:#?}",
+                info["result"]["transactions"].as_array().unwrap()
+            );
         }
         None => {
             log::error!("query_block failed");
@@ -248,7 +288,7 @@ async fn test_query_beacon_node() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     dotenv::dotenv().ok();
 
-    let rt = tokio::task::spawn_blocking(move || query_beacon_node(4481517, vec![0]))
+    let rt = tokio::task::spawn_blocking(move || query_beacon_node("4481517", vec![0]))
         .await
         .unwrap();
 
