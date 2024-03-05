@@ -130,6 +130,9 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
         }
     };
 
+    log::info!("rollup tx hash: {:#?}", hash);
+    log::info!("rollup tx hash str: {:#?}", hash.to_string().as_str());
+
     let blob_tx: Option<Value> = blob_client::query_blob_tx(hash.to_string().as_str()).await;
     let blob_block: Option<Value> =
         blob_client::query_block(tx.block_hash.unwrap().to_string().as_str()).await;
