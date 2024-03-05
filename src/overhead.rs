@@ -131,17 +131,22 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
     };
 
     let blob_tx: Option<Value> = blob_client::query_blob_tx(hash.to_string().as_str()).await;
-    let blob_block: Option<Value> = blob_client::query_block(hash.to_string().as_str()).await;
+    let blob_block: Option<Value> =
+        blob_client::query_block(tx.block_hash.unwrap().to_string().as_str()).await;
 
     let indexed_hashs: Vec<IndexedBlobHash> = data_and_hashes_from_txs(
         &blob_block.unwrap()["transactions"].as_array().unwrap(),
         &blob_tx.unwrap(),
     );
+    log::info!("indexed_hashs ={:#?}", indexed_hashs);
+
     let indexes: Vec<u64> = indexed_hashs.iter().map(|item| item.index).collect();
 
-    let res = blob_client::query_side_car(1, indexes).await;
+    let res = blob_client::query_side_car(1, indexes).await.unwrap();
 
-    let blob_value = &res.unwrap()["data"][0];
+    log::info!("kzg_commitment ={:#?}", &res["data"][0]["kzg_commitment"]);
+
+    let blob_value = &res["data"][0]["blob"];
     let bytes = serde_json::to_vec(blob_value).unwrap();
 
     if bytes.len() != 131072 {
@@ -432,7 +437,7 @@ async fn test_overhead_inspect() {
             return;
         }
     };
-    log::debug!(
+    log::info!(
         "overhead.l1_provider.submit_batches.get_logs.len ={:#?}",
         logs.len()
     );
