@@ -135,7 +135,7 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
         blob_client::query_block(tx.block_hash.unwrap().to_string().as_str()).await;
 
     let indexed_hashs: Vec<IndexedBlobHash> = data_and_hashes_from_txs(
-        &blob_block.unwrap()["transactions"].as_array().unwrap(),
+        &blob_block.unwrap()["result"]["transactions"].as_array().unwrap(),
         &blob_tx.unwrap(),
     );
     log::info!("indexed_hashs ={:#?}", indexed_hashs);

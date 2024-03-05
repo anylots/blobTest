@@ -38,7 +38,7 @@ pub async fn query_blob_tx(hash: &str) -> Option<Value> {
 }
 
 pub async fn query_block(hash: &str) -> Option<Value> {
-    let params: serde_json::Value = json!([hash,true]);
+    let params: serde_json::Value = json!([hash, true]);
 
     let rt = tokio::task::spawn_blocking(move || {
         query_execution_node(&json!({
@@ -184,14 +184,16 @@ async fn test_query_execution_node() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     dotenv::dotenv().ok();
 
-    let params: serde_json::Value =
-        json!(["0x541cee01d959a9c8ea9f6607763a1e048327dcaf312f1d435fddfbc4a1e78dc7"]);
+    let params: serde_json::Value = json!([
+        "0xa37b1b946129bc8c4d50daf31978c8f2954d0b3c6e2ceffd486e33ed94cbeec2",
+        true
+    ]);
 
     let rt = tokio::task::spawn_blocking(move || {
         query_execution_node(
             (&json!({
                 "jsonrpc": "2.0",
-                "method": "eth_getTransactionByHash",
+                "method": "eth_getBlockByHash",
                 "params": params,
                 "id": 1,
             })),
