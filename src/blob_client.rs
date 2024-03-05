@@ -38,7 +38,7 @@ pub async fn query_blob_tx(hash: &str) -> Option<Value> {
 }
 
 pub async fn query_block(hash: &str) -> Option<Value> {
-    let params: serde_json::Value = json!([hash]);
+    let params: serde_json::Value = json!([hash,true]);
 
     let rt = tokio::task::spawn_blocking(move || {
         query_execution_node(&json!({
