@@ -4,6 +4,7 @@ use crate::blob::Blob;
 use crate::blob_client;
 use crate::metrics::ORACLE_SERVICE_METRICS;
 use crate::typed_tx::TypedTransaction;
+use ethers::utils::hex::FromHex;
 use ethers::utils::{hex, rlp};
 use ethers::{abi::AbiDecode, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -146,12 +147,15 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
 
     let indexes: Vec<u64> = indexed_hashs.iter().map(|item| item.index).collect();
 
-    let res = blob_client::query_side_car(1, indexes).await.unwrap();
+    let res = blob_client::query_side_car(4481512, indexes).await.unwrap();
 
     log::info!("kzg_commitment ={:#?}", &res["data"][0]["kzg_commitment"]);
 
     let blob_value = &res["data"][0]["blob"];
-    let bytes = serde_json::to_vec(blob_value).unwrap();
+    let bytes = hex::decode(blob_value.as_str().unwrap()).unwrap(); // Vec<u8>
+
+    // let bytes: Vec<u8> = Vec::from_hex(blob_value.as_str().unwrap()).unwrap();
+    log::error!("Blob len: {:?}",bytes.len());
 
     if bytes.len() != 131072 {
         log::error!("Invalid length for Blob");
@@ -374,6 +378,8 @@ fn data_and_hashes_from_txs(txs: &[Value], target_tx: &Value) -> Vec<IndexedBlob
     let mut hashes = Vec::new();
     let mut blob_index = 0u64; // index of each blob in the block's blob sidecar
 
+    log::info!("txs.len ={:#?}", txs.len());
+
     for tx in txs {
         // skip any non-batcher transactions
         if tx["hash"] != target_tx["hash"] {
@@ -428,44 +434,48 @@ async fn test_overhead_inspect() {
     } else {
         U64::from(1)
     };
-    let filter = l1_rollup
-        .commit_batch_filter()
-        .filter
-        .from_block(start)
-        .address(l1_rollup.address());
+    // let filter = l1_rollup
+    //     .commit_batch_filter()
+    //     .filter
+    //     .from_block(start)
+    //     .address(l1_rollup.address());
 
-    let mut logs: Vec<Log> = match l1_provider.get_logs(&filter).await {
-        Ok(logs) => logs,
-        Err(e) => {
-            log::error!("overhead.l1_provider.get_logs error: {:#?}", e);
-            return;
-        }
-    };
-    log::info!(
-        "overhead.l1_provider.submit_batches.get_logs.len ={:#?}",
-        logs.len()
-    );
+    // let mut logs: Vec<Log> = match l1_provider.get_logs(&filter).await {
+    //     Ok(logs) => logs,
+    //     Err(e) => {
+    //         log::error!("overhead.l1_provider.get_logs error: {:#?}", e);
+    //         return;
+    //     }
+    // };
+    // log::info!(
+    //     "overhead.l1_provider.submit_batches.get_logs.len ={:#?}",
+    //     logs.len()
+    // );
 
-    logs.retain(|x| x.transaction_hash != None && x.block_number != None);
-    if logs.is_empty() {
-        log::warn!("rollup logs for the last 100 blocks of l1 is empty");
-        return;
-    }
-    logs.sort_by(|a, b| b.block_number.unwrap().cmp(&a.block_number.unwrap()));
-    let log = match logs.first() {
-        Some(log) => log,
-        None => {
-            log::info!("no submit batches logs, latest blocknum ={:#?}", latest);
-            return;
-        }
-    };
+    // logs.retain(|x| x.transaction_hash != None && x.block_number != None);
+    // if logs.is_empty() {
+    //     log::warn!("rollup logs for the last 100 blocks of l1 is empty");
+    //     return;
+    // }
+    // logs.sort_by(|a, b| b.block_number.unwrap().cmp(&a.block_number.unwrap()));
+    // let log = match logs.first() {
+    //     Some(log) => log,
+    //     None => {
+    //         log::info!("no submit batches logs, latest blocknum ={:#?}", latest);
+    //         return;
+    //     }
+    // };
 
-    let overhead = match overhead_inspect(&l1_provider, log.transaction_hash.unwrap()).await {
+    let test_hash =
+        TxHash::from_str("0xff6546936f2e095e214c1e1b3bb8bfc7751524948e3af70c7811a9769ca026d9")
+            .unwrap();
+
+    let overhead = match overhead_inspect(&l1_provider, test_hash).await {
         Some(overhead) => overhead,
         None => {
             log::info!(
                 "overhead is none, skip update, tx_hash ={:#?}",
-                log.transaction_hash.unwrap()
+                "log.transaction_hash.unwrap()"
             );
             return;
         }

@@ -9,6 +9,7 @@ impl Blob {
     pub fn decode_raw_tx_payload(&self) -> Result<Vec<u8>, BlobError> {
         let mut data = vec![0u8; MAX_BLOB_TX_PAYLOAD_SIZE];
         for i in 0..4096 {
+            
             if self.0[i * 32] != 0 {
                 return Err(BlobError::InvalidBlob {
                     high_order_byte: self.0[i * 32],
