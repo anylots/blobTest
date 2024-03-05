@@ -3,7 +3,7 @@ use std::{env::var, str::FromStr};
 use serde_json::{json, Value};
 
 pub async fn query_blob_tx(hash: &str) -> Option<Value> {
-    let params: Vec<String> = vec!(hash.to_string());
+    let params: serde_json::Value = json!([hash]);
 
     let rt = tokio::task::spawn_blocking(move || {
         query_execution_node(&json!({
@@ -18,7 +18,7 @@ pub async fn query_blob_tx(hash: &str) -> Option<Value> {
 
     match rt {
         Some(info) => {
-            log::info!("query_blob_tx = {:?}", info);
+            // log::info!("query_blob_tx = {:?}", info);
 
             match serde_json::from_str::<Value>(&info) {
                 Ok(parsed) => return Some(parsed),
@@ -55,7 +55,7 @@ pub async fn query_block(hash: &str) -> Option<Value> {
 
     match rt {
         Some(info) => {
-            log::info!("query_block = {:?}", info);
+            // log::info!("query_block = {:?}", info);
 
             match serde_json::from_str::<Value>(&info) {
                 Ok(parsed) => return Some(parsed),

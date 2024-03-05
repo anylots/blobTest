@@ -4,7 +4,7 @@ use crate::blob::Blob;
 use crate::blob_client;
 use crate::metrics::ORACLE_SERVICE_METRICS;
 use crate::typed_tx::TypedTransaction;
-use ethers::utils::rlp;
+use ethers::utils::{hex, rlp};
 use ethers::{abi::AbiDecode, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -131,14 +131,17 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
     };
 
     log::info!("rollup tx hash: {:#?}", hash);
-    log::info!("rollup tx hash str: {:#?}", hash.to_string().as_str());
+    log::info!("rollup tx hash str: {:#?}", hash);
 
-    let blob_tx: Option<Value> = blob_client::query_blob_tx(hash.to_string().as_str()).await;
+    let blob_tx: Option<Value> =
+        blob_client::query_blob_tx(hex::encode_prefixed(hash).as_str()).await;
     let blob_block: Option<Value> =
-        blob_client::query_block(tx.block_hash.unwrap().to_string().as_str()).await;
+        blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await;
 
     let indexed_hashs: Vec<IndexedBlobHash> = data_and_hashes_from_txs(
-        &blob_block.unwrap()["result"]["transactions"].as_array().unwrap(),
+        &blob_block.unwrap()["result"]["transactions"]
+            .as_array()
+            .unwrap(),
         &blob_tx.unwrap(),
     );
     log::info!("indexed_hashs ={:#?}", indexed_hashs);
