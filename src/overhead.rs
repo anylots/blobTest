@@ -110,8 +110,8 @@ pub async fn update(
 
 async fn overhead_inspect(
     l1_provider: &Provider<Http>,
-    txHash: TxHash,
-    blockNum: U64,
+    tx_hash: TxHash,
+    block_num: U64,
 ) -> Option<usize> {
     let txn_per_block_expect: f64 = var("TXN_PER_BLOCK")
         .expect("Cannot detect TXN_PER_BLOCK env var")
@@ -123,7 +123,7 @@ async fn overhead_inspect(
         .expect("Cannot parse TXN_PER_BATCH env var");
 
     //Step1.  Get transaction
-    let result = l1_provider.get_transaction(txHash).await;
+    let result = l1_provider.get_transaction(tx_hash).await;
     let tx = match result {
         Ok(Some(tx)) => tx,
         Ok(None) => {
@@ -136,9 +136,9 @@ async fn overhead_inspect(
         }
     };
 
-    log::info!("rollup tx hash: {:#?}", txHash);
+    log::info!("rollup tx hash: {:#?}", tx_hash);
     let blob_tx: Option<Value> =
-        blob_client::query_blob_tx(hex::encode_prefixed(txHash).as_str()).await;
+        blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str()).await;
     let blob_block: Option<Value> =
         blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await;
 
@@ -149,16 +149,23 @@ async fn overhead_inspect(
         &blob_tx.unwrap()["result"],
     );
     log::info!("indexed_hashs ={:#?}", indexed_hashs);
+    if indexed_hashs.is_empty() {
+        log::info!("No blob in this batch, batchTxHash ={:#?}", tx_hash);
+        return None;
+    }
 
     let indexes: Vec<u64> = indexed_hashs.iter().map(|item| item.index).collect();
 
-    let next_block = blob_client::query_block_by_num((blockNum + 1).as_u64())
+    let next_block = blob_client::query_block_by_num((block_num + 1).as_u64())
         .await
         .unwrap();
     // log::error!("next_block: {:?}", next_block);
 
     let res = blob_client::query_side_car(
-        next_block["result"]["parentBeaconBlockRoot"].as_str().unwrap().to_string(),
+        next_block["result"]["parentBeaconBlockRoot"]
+            .as_str()
+            .unwrap()
+            .to_string(),
         indexes,
     )
     .await
