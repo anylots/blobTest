@@ -131,8 +131,6 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
     };
 
     log::info!("rollup tx hash: {:#?}", hash);
-    log::info!("rollup tx hash str: {:#?}", hash);
-
     let blob_tx: Option<Value> =
         blob_client::query_blob_tx(hex::encode_prefixed(hash).as_str()).await;
     let blob_block: Option<Value> =
@@ -142,7 +140,7 @@ async fn overhead_inspect(l1_provider: &Provider<Http>, hash: TxHash) -> Option<
         &blob_block.unwrap()["result"]["transactions"]
             .as_array()
             .unwrap(),
-        &blob_tx.unwrap(),
+        &blob_tx.unwrap()["result"],
     );
     log::info!("indexed_hashs ={:#?}", indexed_hashs);
 
@@ -379,12 +377,12 @@ fn data_and_hashes_from_txs(txs: &[Value], target_tx: &Value) -> Vec<IndexedBlob
     for tx in txs {
         // skip any non-batcher transactions
         if tx["hash"] != target_tx["hash"] {
-            if let Some(blob_hashes) = tx["blob_hashes"].as_array() {
+            if let Some(blob_hashes) = tx["blobVersionedHashes"].as_array() {
                 blob_index += blob_hashes.len() as u64;
             }
             continue;
         }
-        if let Some(blob_hashes) = tx["blob_hashes"].as_array() {
+        if let Some(blob_hashes) = tx["blobVersionedHashes"].as_array() {
             for h in blob_hashes {
                 let idh = IndexedBlobHash {
                     index: blob_index,
