@@ -490,7 +490,7 @@ async fn test_overhead_inspect() {
         overhead_inspect(
             &l1_provider,
             TxHash::from_str(rollup_tx_hash.unwrap().as_str()).unwrap(),
-            U64::from_str(rollup_tx_block_num.unwrap().as_str()).unwrap(),
+            U64::from(rollup_tx_block_num.unwrap().parse::<u64>().unwrap()),
         )
         .await;
         return;
