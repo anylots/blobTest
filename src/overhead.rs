@@ -229,11 +229,11 @@ async fn overhead_inspect(
         data_gas,
         txs.len()
     );
-    if let Some(tx) = txs.first() {
+
+    for tx in &txs {
         match tx {
             TypedTransaction::Legacy(tx_req) => {
                 log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
-                log::info!("Legacy.tx_req: {:#?}", tx_req);
             }
             TypedTransaction::Eip2930(tx_req) => {
                 log::info!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
