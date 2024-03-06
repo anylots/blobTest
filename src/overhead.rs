@@ -140,6 +140,8 @@ async fn overhead_inspect(
     };
 
     log::info!("rollup tx hash: {:#?}", tx_hash);
+    log::info!("rollup blocknum = {:#?}", block_num);
+
     let blob_tx: Option<Value> =
         blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str()).await;
     let blob_block: Option<Value> =
