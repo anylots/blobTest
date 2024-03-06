@@ -202,14 +202,16 @@ async fn overhead_inspect(
         );
         return None;
     }
-    let param = if let Ok(_param) = CommitBatchCall::decode(&data) {
-        _param
-    } else {
-        log::error!(
-            "overhead_inspect decode tx.input error, tx_hash =  {:#?}",
-            tx_hash
-        );
-        return None;
+    let param = match CommitBatchCall::decode(&data) {
+        Ok(_param) => _param,
+        Err(e) => {
+            log::error!(
+                "overhead_inspect decode tx.input error, tx_hash =  {:#?}, err= {:#?}",
+                tx_hash,
+                e
+            );
+            return None;
+        }
     };
     let chunks: Vec<Bytes> = param.batch_data.chunks;
     if chunks.is_empty() {
