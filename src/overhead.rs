@@ -194,7 +194,7 @@ async fn overhead_inspect(
     let tx_payload = blob.decode_raw_tx_payload().unwrap();
     log::info!(
         "decode_raw_tx_payload end, tx_payload.len() = {:?}",
-        tx_payload
+        tx_payload.len()
     );
 
     let data_gas = data_gas_cost(&tx_payload);
@@ -269,6 +269,8 @@ async fn overhead_inspect(
         }
     };
     let rollup_gas_used = receipt.gas_used.unwrap_or_default();
+    log::info!("rollup_gas_used: {}", rollup_gas_used);
+
     if rollup_gas_used.is_zero() {
         log::error!(
             "l1_provider.get_transaction_receipt gas_used is None or 0, tx_hash = {:#?}",
