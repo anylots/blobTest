@@ -229,11 +229,16 @@ async fn overhead_inspect(
         data_gas,
         txs.len()
     );
+    let l1_data = bincode::serialize(&txs).unwrap();
+    let l2_data_gas = data_gas_cost(&l1_data);
+    log::info!("l2_data_gas: {}", l2_data_gas);
 
-    for tx in &txs {
+    
+    if let Some(tx) = txs.first() {
         match tx {
             TypedTransaction::Legacy(tx_req) => {
                 log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
+                log::info!("Legacy.tx_req: {:#?}", tx_req);
             }
             TypedTransaction::Eip2930(tx_req) => {
                 log::info!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
