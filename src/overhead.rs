@@ -383,12 +383,14 @@ fn decode_transactions(bs: &[u8]) -> Vec<TypedTransaction> {
     }
     let rlp = rlp::Rlp::new(bs);
     let transactions: Vec<TypedTransaction> = rlp::decode_list(bs);
-    if rlp.item_count().unwrap() != transactions.len() {
-        log::error!(
-            "txn rlp.item_count is wrong: {:#?}",
-            rlp.item_count().unwrap()
-        );
-    }
+    log::info!("decode_transactions.len(): {:#?}", transactions.len());
+
+    // if rlp.item_count().unwrap() != transactions.len() {
+    //     log::error!(
+    //         "txn rlp.item_count is wrong: {:#?}",
+    //         rlp.item_count().unwrap()
+    //     );
+    // }
     transactions
 }
 
