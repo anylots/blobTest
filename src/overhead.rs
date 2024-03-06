@@ -10,6 +10,8 @@ use ethers::{abi::AbiDecode, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env::var;
+use std::io::{Cursor, Read};
+use std::ops::Mul;
 use std::str::FromStr;
 
 /// Update overhead
@@ -177,7 +179,7 @@ async fn overhead_inspect(
     let bytes = hex::decode(blob_value.as_str().unwrap()).unwrap(); // Vec<u8>
 
     // let bytes: Vec<u8> = Vec::from_hex(blob_value.as_str().unwrap()).unwrap();
-    log::error!("Blob len: {:?}", bytes.len());
+    log::info!("Blob len: {:?}", bytes.len());
 
     if bytes.len() != 131072 {
         log::error!("Invalid length for Blob");
@@ -191,108 +193,103 @@ async fn overhead_inspect(
 
     let data_gas = data_gas_cost(&tx_payload);
 
-    let txs: Vec<TypedTransaction> = decode_transactions(&tx_payload);
+    //Step2. Parse transaction data
+    let data = tx.input;
+    if data.is_empty() {
+        log::warn!(
+            "overhead_inspect tx.input is empty, tx_hash =  {:#?}",
+            tx_hash
+        );
+        return None;
+    }
+    let param = if let Ok(_param) = CommitBatchCall::decode(&data) {
+        _param
+    } else {
+        log::error!(
+            "overhead_inspect decode tx.input error, tx_hash =  {:#?}",
+            tx_hash
+        );
+        return None;
+    };
+    let chunks: Vec<Bytes> = param.batch_data.chunks;
+    if chunks.is_empty() {
+        return None;
+    }
 
+    let l2_txn = decode_chunks(chunks).unwrap_or(0);
+
+    let txs: Vec<TypedTransaction> = decode_transactions_from_blob(&tx_payload, l2_txn);
     log::info!(
         "overhead_inspect data_gas = {:#?}, txs_num = {:#?}",
         data_gas,
         txs.len()
     );
 
-    // //Step2. Parse transaction data
-    // let data = tx.input;
-    // if data.is_empty() {
-    //     log::warn!("overhead_inspect tx.input is empty, tx_hash =  {:#?}", hash);
-    //     return None;
-    // }
-    // let param = if let Ok(_param) = SubmitBatchesCall::decode(&data) {
-    //     _param
-    // } else {
-    //     log::error!(
-    //         "overhead_inspect decode tx.input error, tx_hash =  {:#?}",
-    //         hash
-    //     );
-    //     return None;
-    // };
-    // let batches = param.batches;
-    // if batches.is_empty() {
-    //     return None;
-    // }
+    let receipt = match l1_provider.get_transaction_receipt(tx_hash).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            log::error!(
+                "l1_provider.get_transaction_receipt is none, tx_hash = {:#?}",
+                tx_hash
+            );
+            return None;
+        }
+        Err(e) => {
+            log::error!("l1_provider.get_transaction_receipt err: {:#?}", e);
+            return None;
+        }
+    };
+    let rollup_gas_used = receipt.gas_used.unwrap_or_default();
+    if rollup_gas_used.is_zero() {
+        log::error!(
+            "l1_provider.get_transaction_receipt gas_used is None or 0, tx_hash = {:#?}",
+            tx_hash
+        );
+        return None;
+    }
 
-    // //Step3. Calculate gas consumption
-    // let mut block_num = 0;
-    // let mut tx_num = 0;
-    // let mut flexible_cost = 0u64;
-    // let mut witness_cost = 0u64;
-    // let mut transactions_cost = 0u64;
+    //Step4. Calculate overhead
+    let g = rollup_gas_used - 0;
 
-    // for batch in batches.iter() {
-    //     let this_witness_c = data_gas_cost(&batch.block_witness);
-    //     let this_tx_c = data_gas_cost(&batch.transactions);
+    // Set metric
+    ORACLE_SERVICE_METRICS.txn_per_batch.set(0.0);
 
-    //     witness_cost += this_witness_c;
-    //     transactions_cost += this_tx_c;
-    //     flexible_cost += this_witness_c + this_tx_c;
-
-    //     let block_contexts = decode_block_context(&batch.block_witness);
-    //     block_num += block_contexts.unwrap_or(vec![]).len();
-
-    //     let txs = decode_transactions(&batch.transactions);
-    //     tx_num += txs.len();
-    // }
-
-    // let data_gas = data_gas_cost(&data);
-
-    // let receipt = match l1_provider.get_transaction_receipt(hash).await {
-    //     Ok(Some(r)) => r,
-    //     Ok(None) => {
-    //         log::error!(
-    //             "l1_provider.get_transaction_receipt is none, tx_hash = {:#?}",
-    //             hash
-    //         );
-    //         return None;
-    //     }
-    //     Err(e) => {
-    //         log::error!("l1_provider.get_transaction_receipt err: {:#?}", e);
-    //         return None;
-    //     }
-    // };
-    // let rollup_gas_used = receipt.gas_used.unwrap_or_default();
-    // if rollup_gas_used.is_zero() {
-    //     log::error!(
-    //         "l1_provider.get_transaction_receipt gas_used is None or 0, tx_hash = {:#?}",
-    //         hash
-    //     );
-    //     return None;
-    // }
-
-    // //Step4. Calculate overhead
-    // let g = rollup_gas_used - flexible_cost;
-    // log::info!(
-    //     "gasinspect => tx_hash: {:?}, batch_num: {:?}, block_num: {:?}, tx_num: {:?}, gas used total: {:?}, call_data: {:?}, witness_cost: {:?},
-    //      transactions_cost: {:?}, otherFixedCost: {:?}, execution cost: {:?}, G: fixedCallData+execution cost: {:?}",
-    //      hash, batches.len(), block_num, tx_num, rollup_gas_used, data_gas, witness_cost, transactions_cost, data_gas - flexible_cost, rollup_gas_used - data_gas, g
-    // );
-    // let mut overhead = 512.0;
-    // let txn_per_block = tx_num as f64 / block_num as f64;
-    // let txn_per_batch = tx_num as f64 / batches.len() as f64;
-    // // Set metric
-    // ORACLE_SERVICE_METRICS.txn_per_batch.set(txn_per_batch);
-
-    // overhead += if txn_per_block > txn_per_block_expect {
-    //     580.0 / txn_per_block
-    // } else {
-    //     580.0 / txn_per_block_expect
-    // };
-
-    // overhead += if txn_per_batch > txn_per_batch_expect {
-    //     g.as_usize() as f64 / txn_per_batch
-    // } else {
-    //     g.as_usize() as f64 / txn_per_batch_expect
-    // };
-
-    // log::info!("overhead inspection result is: {:#?}", overhead as usize);
+    log::info!("overhead inspection result is: {:#?}", 0 as usize);
     Some(1 as usize)
+}
+
+fn decode_chunks(chunks: Vec<Bytes>) -> Option<u64> {
+    if chunks.is_empty() {
+        return None;
+    }
+
+    let mut txn_in_batch = 0;
+    let mut l1_txn_in_batch = 0;
+    for chunk in chunks.iter() {
+        let mut chunk_bn: Vec<u64> = vec![];
+        let bs: &[u8] = chunk;
+        // decode blockcontext from chunk
+        // |   1 byte   | 60 bytes | ... | 60 bytes |
+        // | num blocks |  block 1 | ... |  block n |
+        let num_blocks = U256::from_big_endian(bs.get(..1)?);
+        for i in 0..num_blocks.as_usize() {
+            let block_num = U256::from_big_endian(bs.get((60.mul(i) + 1)..(60.mul(i) + 1 + 8))?);
+            let txs_num =
+                U256::from_big_endian(bs.get((60.mul(i) + 1 + 56)..(60.mul(i) + 1 + 58))?);
+            let l1_txs_num =
+                U256::from_big_endian(bs.get((60.mul(i) + 1 + 58)..(60.mul(i) + 1 + 60))?);
+            txn_in_batch += txs_num.as_u32();
+            l1_txn_in_batch += l1_txs_num.as_u32();
+            chunk_bn.push(block_num.as_u64());
+        }
+    }
+    log::info!("total_txn_in_batch: {:#?}", txn_in_batch);
+    log::info!("l1_txn_in_batch: {:#?}", l1_txn_in_batch);
+    if txn_in_batch < l1_txn_in_batch {
+        log::error!("total_txn_in_batch < l1_txn_in_batch");
+        return None;
+    }
+    return Some((txn_in_batch - l1_txn_in_batch) as u64);
 }
 
 fn data_gas_cost(data: &[u8]) -> u64 {
@@ -375,6 +372,27 @@ fn decode_block_context(bs: &[u8]) -> Result<Vec<BlockInfo>, ethers::core::abi::
     }
 
     Ok(block_contexts)
+}
+
+fn decode_transactions_from_blob(bs: &[u8], tx_num: u64) -> Vec<TypedTransaction> {
+    let mut cursor = Cursor::new(bs);
+    let mut txs = Vec::new();
+
+    for _ in 0..tx_num {
+        let mut tx_len_buf = [0u8; 4];
+        if cursor.read_exact(&mut tx_len_buf).is_err() {
+            break;
+        }
+
+        let tx_len = u32::from_be_bytes(tx_len_buf);
+        let mut tx_bytes = vec![0u8; tx_len as usize];
+        cursor.read_exact(&mut tx_bytes).unwrap();
+
+        let tx: TypedTransaction = rlp::decode(&tx_bytes).unwrap();
+        txs.push(tx);
+    }
+
+    txs
 }
 
 fn decode_transactions(bs: &[u8]) -> Vec<TypedTransaction> {
