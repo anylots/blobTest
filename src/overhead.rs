@@ -223,18 +223,17 @@ async fn overhead_inspect(
 
     let l2_txn = decode_chunks(chunks).unwrap_or(0);
 
-    let txs: Vec<TypedTransaction> = decode_transactions_from_blob(&tx_payload, l2_txn);
+    let (txs, position) = decode_transactions_from_blob(&tx_payload, l2_txn);
     log::info!(
         "overhead_inspect data_gas = {:#?}, txs_num = {:#?}",
         data_gas,
         txs.len()
     );
-    let l1_data = bincode::serialize(&txs).unwrap();
-    let l2_data_gas = data_gas_cost(&l1_data);
-    log::info!("l2_data_gas: {}", l2_data_gas);
 
-    
-    if let Some(tx) = txs.first() {
+    let l2_data_gas = data_gas_cost(&tx_payload[0..position as usize]);
+    log::info!("position: {:#?}, l2_data_gas: {:#?}", position, l2_data_gas);
+
+    if let Some(tx) = txs.last() {
         match tx {
             TypedTransaction::Legacy(tx_req) => {
                 log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
@@ -401,7 +400,7 @@ fn decode_block_context(bs: &[u8]) -> Result<Vec<BlockInfo>, ethers::core::abi::
     Ok(block_contexts)
 }
 
-fn decode_transactions_from_blob(bs: &[u8], tx_num: u64) -> Vec<TypedTransaction> {
+fn decode_transactions_from_blob(bs: &[u8], tx_num: u64) -> (Vec<TypedTransaction>, u64) {
     let mut cursor = Cursor::new(bs);
     let mut txs = Vec::new();
 
@@ -419,7 +418,7 @@ fn decode_transactions_from_blob(bs: &[u8], tx_num: u64) -> Vec<TypedTransaction
         txs.push(tx);
     }
 
-    txs
+    (txs, cursor.position())
 }
 
 fn decode_transactions(bs: &[u8]) -> Vec<TypedTransaction> {
