@@ -9,6 +9,7 @@ use ethers::utils::{hex, rlp};
 use ethers::{abi::AbiDecode, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::any::Any;
 use std::env::var;
 use std::io::{Cursor, Read};
 use std::ops::Mul;
@@ -226,6 +227,22 @@ async fn overhead_inspect(
         data_gas,
         txs.len()
     );
+    if let Some(tx) = txs.first() {
+        match tx {
+            TypedTransaction::Legacy(tx_req) => {
+                println!("Legacy.From: {}", tx_req.from.unwrap());
+            }
+            TypedTransaction::Eip2930(tx_req) => {
+                println!("Eip2930.From: {}", tx_req.tx.from.unwrap());
+            }
+            TypedTransaction::Eip1559(tx_req) => {
+                println!("Eip1559.From: {}", tx_req.from.unwrap());
+            }
+            TypedTransaction::L1MessageTx(tx_req) => {
+                println!("L1MessageTx.From: {}", tx_req.from.unwrap());
+            }
+        }
+    }
 
     let receipt = match l1_provider.get_transaction_receipt(tx_hash).await {
         Ok(Some(r)) => r,
@@ -475,8 +492,8 @@ async fn test_overhead_inspect() {
             return;
         }
     };
-    let start = if latest > U64::from(1000) {
-        latest - U64::from(1000) //100
+    let start = if latest > U64::from(10000) {
+        latest - U64::from(10000) //10000
     } else {
         U64::from(1)
     };
