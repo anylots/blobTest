@@ -192,7 +192,10 @@ async fn overhead_inspect(
     let array: [u8; 131072] = bytes.try_into().expect("Invalid length");
     let blob = Blob(array);
     let tx_payload = blob.decode_raw_tx_payload().unwrap();
-    log::info!("decode_raw_tx_payload end");
+    log::info!(
+        "decode_raw_tx_payload end, tx_payload.len() = {:?}",
+        tx_payload
+    );
 
     let data_gas = data_gas_cost(&tx_payload);
 
