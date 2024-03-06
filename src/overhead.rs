@@ -473,16 +473,26 @@ async fn test_overhead_inspect() {
     dotenv::dotenv().ok();
 
     let l1_rpc = var("GAS_ORACLE_L1_RPC").expect("Cannot detect GAS_ORACLE_L1_RPC env var");
-
-    log::info!("GAS_ORACLE_L1_RPC: {:#?}", l1_rpc);
+    let rollup_tx_hash = var("ROLLUP_TX_HASH");
+    let rollup_tx_block_num = var("ROLLUP_TX_BLOCK_NUM");
+    log::info!("rollup_tx_block_num: {:#?}", rollup_tx_block_num);
 
     let l1_rollup_address: String = var("L1_ROLLUP").expect("Cannot detect L1_ROLLUP env var");
-
     let l1_provider: Provider<Http> = Provider::<Http>::try_from(l1_rpc).unwrap();
     let l1_rollup: Rollup<Provider<Http>> = Rollup::new(
         Address::from_str(l1_rollup_address.as_str()).unwrap(),
         Arc::new(l1_provider.clone()),
     );
+
+    if rollup_tx_hash.is_ok() && rollup_tx_block_num.is_ok() {
+        overhead_inspect(
+            &l1_provider,
+            TxHash::from_str(rollup_tx_hash.unwrap().as_str()).unwrap(),
+            U64::from_str(rollup_tx_block_num.unwrap().as_str()).unwrap(),
+        )
+        .await;
+        return;
+    }
 
     // Step1. fetch latest batches and calculate overhead.
     let latest = match l1_provider.get_block_number().await {
@@ -492,8 +502,8 @@ async fn test_overhead_inspect() {
             return;
         }
     };
-    let start = if latest > U64::from(10000) {
-        latest - U64::from(10000) //10000
+    let start = if latest > U64::from(200) {
+        latest - U64::from(200) //200
     } else {
         U64::from(1)
     };
