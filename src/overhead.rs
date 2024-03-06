@@ -232,16 +232,17 @@ async fn overhead_inspect(
     if let Some(tx) = txs.first() {
         match tx {
             TypedTransaction::Legacy(tx_req) => {
-                println!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
+                log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
+                log::info!("Legacy.tx_req: {:#?}", tx_req);
             }
             TypedTransaction::Eip2930(tx_req) => {
-                println!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
+                log::info!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
             }
             TypedTransaction::Eip1559(tx_req) => {
-                println!("Eip1559.chain_id: {}", tx_req.chain_id.unwrap());
+                log::info!("Eip1559.chain_id: {}", tx_req.chain_id.unwrap());
             }
             TypedTransaction::L1MessageTx(tx_req) => {
-                println!("L1MessageTx.chain_id: {}", tx_req.chain_id.unwrap());
+                log::info!("L1MessageTx.chain_id: {}", tx_req.chain_id.unwrap());
             }
         }
     }
