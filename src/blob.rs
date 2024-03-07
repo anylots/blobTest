@@ -9,7 +9,6 @@ impl Blob {
     pub fn decode_raw_tx_payload(&self) -> Result<Vec<u8>, BlobError> {
         let mut data = vec![0u8; MAX_BLOB_TX_PAYLOAD_SIZE];
         for i in 0..4096 {
-            
             if self.0[i * 32] != 0 {
                 return Err(BlobError::InvalidBlob {
                     high_order_byte: self.0[i * 32],
@@ -25,6 +24,9 @@ impl Blob {
         while offset < MAX_BLOB_TX_PAYLOAD_SIZE {
             let data_len =
                 u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+            if data_len == 0 {
+                break;
+            }
             let remaining_len = MAX_BLOB_TX_PAYLOAD_SIZE - offset - 4;
             if data_len > remaining_len {
                 return Err(BlobError::DecodeError {
@@ -40,6 +42,7 @@ impl Blob {
             offset += if remainder > 0 { ret + 1 } else { ret } * 31;
             chunk_index += 1;
         }
+        log::info!("blob chunk_index = {:?}", chunk_index);
         Ok(payload)
     }
 }

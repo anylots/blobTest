@@ -97,10 +97,6 @@ pub async fn query_block(hash: &str) -> Option<Value> {
                     return None;
                 }
             };
-            // log::info!(
-            //     "blobVersionedHashes: {:#?}",
-            //     block["result"]["blobVersionedHashes"]
-            // );
         }
         None => {
             log::error!("query ransaction failed");
@@ -125,8 +121,6 @@ pub async fn query_block_by_num(num: u64) -> Option<Value> {
 
     match rt {
         Some(info) => {
-            // log::info!("query_block = {:?}", info);
-
             match serde_json::from_str::<Value>(&info) {
                 Ok(parsed) => return Some(parsed),
                 Err(_) => {
@@ -134,10 +128,6 @@ pub async fn query_block_by_num(num: u64) -> Option<Value> {
                     return None;
                 }
             };
-            // log::info!(
-            //     "blobVersionedHashes: {:#?}",
-            //     block["result"]["blobVersionedHashes"]
-            // );
         }
         None => {
             log::error!("query ransaction failed");
@@ -160,10 +150,6 @@ pub async fn query_side_car(slot: String, indexes: Vec<u64>) -> Option<Value> {
                     return None;
                 }
             };
-            // log::info!(
-            //     "blobVersionedHashes: {:#?}",
-            //     block["result"]["blobVersionedHashes"]
-            // );
         }
         None => {
             log::error!("query_side_car failed");

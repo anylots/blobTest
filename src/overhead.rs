@@ -116,11 +116,7 @@ async fn overhead_inspect(
     tx_hash: TxHash,
     block_num: U64,
 ) -> Option<usize> {
-    let txn_per_block_expect: f64 = var("TXN_PER_BLOCK")
-        .expect("Cannot detect TXN_PER_BLOCK env var")
-        .parse()
-        .expect("Cannot parse TXN_PER_BLOCK env var");
-    let txn_per_batch_expect: f64 = var("TXN_PER_BATCH")
+    let txn_per_batch_expect: u128 = var("TXN_PER_BATCH")
         .expect("Cannot detect TXN_PER_BATCH env var")
         .parse()
         .expect("Cannot parse TXN_PER_BATCH env var");
@@ -141,80 +137,6 @@ async fn overhead_inspect(
 
     log::info!("rollup tx hash: {:#?}", tx_hash);
     log::info!("rollup blocknum = {:#?}", block_num);
-
-    let blob_tx: Value =
-        match blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str()).await {
-            Some(r) => r,
-            None => {
-                log::error!("l1_provider.get_transaction_receipt err");
-                return None;
-            }
-        };
-    let blob_block =
-        match blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await
-        {
-            Some(r) => r,
-            None => {
-                log::error!("l1_provider.get_transaction_receipt err");
-                return None;
-            }
-        };
-
-    let priority_fee = U256::from_str(blob_tx["result"]["maxPriorityFeePerGas"].as_str().unwrap_or("0x0"))
-        .unwrap_or(U256::from(0));
-
-    let base_fee =
-        U256::from_str(blob_block["result"]["baseFeePerGas"].as_str().unwrap_or("0x0"));
-
-    let indexed_hashs: Vec<IndexedBlobHash> = data_and_hashes_from_txs(
-        &blob_block["result"]["transactions"].as_array().unwrap(),
-        &blob_tx["result"],
-    );
-    log::info!("indexed_hashs ={:#?}", indexed_hashs);
-    if indexed_hashs.is_empty() {
-        log::info!("No blob in this batch, batchTxHash ={:#?}", tx_hash);
-        return None;
-    }
-
-    let indexes: Vec<u64> = indexed_hashs.iter().map(|item| item.index).collect();
-
-    let next_block = blob_client::query_block_by_num((block_num + 1).as_u64())
-        .await
-        .unwrap();
-    // log::error!("next_block: {:?}", next_block);
-
-    let res = blob_client::query_side_car(
-        next_block["result"]["parentBeaconBlockRoot"]
-            .as_str()
-            .unwrap()
-            .to_string(),
-        indexes,
-    )
-    .await
-    .unwrap();
-
-    log::info!("kzg_commitment ={:#?}", &res["data"][0]["kzg_commitment"]);
-
-    let blob_value = &res["data"][0]["blob"];
-    let bytes = hex::decode(blob_value.as_str().unwrap()).unwrap(); // Vec<u8>
-
-    // let bytes: Vec<u8> = Vec::from_hex(blob_value.as_str().unwrap()).unwrap();
-    log::info!("Blob len: {:?}", bytes.len());
-
-    if bytes.len() != 131072 {
-        log::error!("Invalid length for Blob");
-        return None;
-    }
-
-    let array: [u8; 131072] = bytes.try_into().expect("Invalid length");
-    let blob = Blob(array);
-    let tx_payload = blob.decode_raw_tx_payload().unwrap();
-    log::info!(
-        "decode_raw_tx_payload end, tx_payload.len() = {:?}",
-        tx_payload.len()
-    );
-
-    let data_gas = data_gas_cost(&tx_payload);
 
     //Step2. Parse transaction data
     let data = tx.input;
@@ -240,36 +162,18 @@ async fn overhead_inspect(
     if chunks.is_empty() {
         return None;
     }
+    let l2_txn = extract_txn_num(chunks).unwrap_or(0);
 
-    let l2_txn = decode_chunks(chunks).unwrap_or(0);
-
-    let (txs, position) = decode_transactions_from_blob(&tx_payload, l2_txn);
-    log::info!(
-        "overhead_inspect data_gas = {:#?}, txs_num = {:#?}",
-        data_gas,
-        txs.len()
-    );
-
-    let l2_data_gas = data_gas_cost(&tx_payload[0..position as usize]);
-    log::info!("position: {:#?}, l2_data_gas: {:#?}", position, l2_data_gas);
-
-    if let Some(tx) = txs.last() {
-        match tx {
-            TypedTransaction::Legacy(tx_req) => {
-                log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
-                log::info!("Legacy.tx_req: {:#?}", tx_req);
+    let l2_data_gas =
+        match calculate_l2_data_gas_from_blob(tx_hash, tx.block_hash.unwrap(), block_num, l2_txn)
+            .await
+        {
+            Ok(value) => value,
+            Err(e) => {
+                log::error!("calculate_l2_data_gas_from_blob error: {:?}", e);
+                return None;
             }
-            TypedTransaction::Eip2930(tx_req) => {
-                log::info!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
-            }
-            TypedTransaction::Eip1559(tx_req) => {
-                log::info!("Eip1559.chain_id: {}", tx_req.chain_id.unwrap());
-            }
-            TypedTransaction::L1MessageTx(tx_req) => {
-                log::info!("L1MessageTx.chain_id: {}", tx_req.chain_id.unwrap());
-            }
-        }
-    }
+        };
 
     let blob_tx_receipt =
         match blob_client::query_blob_tx_receipt(hex::encode_prefixed(tx_hash).as_str()).await {
@@ -280,8 +184,12 @@ async fn overhead_inspect(
             }
         };
 
-    let rollup_gas_used =
-        U256::from_str(&blob_tx_receipt["result"]["gasUsed"].as_str().unwrap_or("0x0")).unwrap_or(U256::from(0));
+    let rollup_gas_used = U256::from_str(
+        &blob_tx_receipt["result"]["gasUsed"]
+            .as_str()
+            .unwrap_or("0x0"),
+    )
+    .unwrap_or(U256::from(0));
     log::info!("rollup_gas_used: {:?}", rollup_gas_used);
 
     if rollup_gas_used.is_zero() {
@@ -291,29 +199,139 @@ async fn overhead_inspect(
         );
         return None;
     }
-    let blob_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasPrice"].as_str().unwrap_or("0x0"))
-        .unwrap_or(U256::from(0));
-    let effective_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasUsed"].as_str().unwrap_or("0x0"))
-        .unwrap_or(U256::from(0));
+    let blob_gas_price = U256::from_str(
+        &blob_tx_receipt["result"]["blobGasPrice"]
+            .as_str()
+            .unwrap_or("0x0"),
+    )
+    .unwrap_or(U256::from(0));
+    let effective_gas_price = U256::from_str(
+        &blob_tx_receipt["result"]["blobGasUsed"]
+            .as_str()
+            .unwrap_or("0x0"),
+    )
+    .unwrap_or(U256::from(0));
     log::info!("blob_gas_price: {:?}", blob_gas_price);
     log::info!("effective_gas_price: {:?}", effective_gas_price);
 
     //Step4. Calculate overhead
     let x = blob_gas_price.as_u128() as f64 / effective_gas_price.as_u128() as f64;
-    let ov: u128 = (rollup_gas_used.as_u128() + (131072.0 * x).ceil() as u128
-        - l2_data_gas as u128)
-        / l2_txn as u128;
-
-    log::info!("overhead: {:?}", ov);
+    let blob_gas_used = if l2_txn > 0 { 131072.0 } else { 0.0 };
+    let sys_gas: u128 =
+        rollup_gas_used.as_u128() + (blob_gas_used * x).ceil() as u128 - l2_data_gas as u128;
+    let overhead = if l2_txn as u128 > txn_per_batch_expect {
+        sys_gas / l2_txn as u128
+    } else {
+        sys_gas / txn_per_batch_expect
+    };
+    log::info!("overhead: {:?}", overhead);
 
     // Set metric
-    ORACLE_SERVICE_METRICS.txn_per_batch.set(0.0);
-
-    log::info!("overhead inspection result is: {:#?}", 0 as usize);
-    Some(ov as usize)
+    ORACLE_SERVICE_METRICS.txn_per_batch.set(l2_txn as f64);
+    Some(overhead as usize)
 }
 
-fn decode_chunks(chunks: Vec<Bytes>) -> Option<u64> {
+use std::convert::TryInto;
+
+async fn calculate_l2_data_gas_from_blob(
+    tx_hash: TxHash,
+    block_hash: TxHash,
+    block_num: U64,
+    l2_txn: u64,
+) -> Result<u64, String> {
+    if l2_txn == 0 {
+        return Ok(0);
+    }
+    let blob_tx = blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str())
+        .await
+        .ok_or_else(|| "Failed to query blob tx".to_string())?;
+
+    let blob_block = blob_client::query_block(hex::encode_prefixed(block_hash).as_str())
+        .await
+        .ok_or_else(|| "Failed to query blob block".to_string())?;
+
+    let next_block_num = block_num + 1;
+    let next_block = blob_client::query_block_by_num(next_block_num.as_u64())
+        .await
+        .ok_or_else(|| format!("Failed to query block {}", next_block_num))?;
+
+    let indexed_hashes = data_and_hashes_from_txs(
+        &blob_block["result"]["transactions"]
+            .as_array()
+            .unwrap_or(&Vec::<Value>::new()),
+        &blob_tx["result"],
+    );
+
+    if indexed_hashes.is_empty() {
+        log::info!("No blob in this batch, batchTxHash ={:#?}", tx_hash);
+        return Ok(0);
+    }
+
+    let indexes: Vec<u64> = indexed_hashes.iter().map(|item| item.index).collect();
+
+    let parent_beacon_block_root = next_block["result"]["parentBeaconBlockRoot"]
+        .as_str()
+        .ok_or_else(|| format!("Missing parentBeaconBlockRoot in block {}", next_block_num))?
+        .to_string();
+
+    let blob_side_car = blob_client::query_side_car(parent_beacon_block_root, indexes)
+        .await
+        .ok_or_else(|| "Failed to query side car".to_string())?;
+
+    let blob_value = blob_side_car["data"][0]["blob"]
+        .as_str()
+        .ok_or_else(|| format!("Missing blob value in tx_hash: {:?}", tx_hash))?;
+
+    let blob_bytes = hex::decode(blob_value)
+        .map_err(|e| format!("Failed to decode blob, tx_hash: {:?}, err: {}", tx_hash, e))?;
+
+    if blob_bytes.len() != 131072 {
+        return Err("Invalid length for Blob".to_string());
+    }
+
+    let array: [u8; 131072] = blob_bytes.try_into().unwrap();
+    let blob = Blob(array);
+    let tx_payload = blob
+        .decode_raw_tx_payload()
+        .map_err(|e| format!("Failed to decode raw tx payload: {}", e))?;
+
+    let blob_data_gas = data_gas_cost(&tx_payload);
+    log::info!("tx_payload_in_blob gas: {}", blob_data_gas);
+
+    let (txs, position) = decode_transactions_from_blob(&tx_payload, l2_txn);
+
+    let l2_data_gas = data_gas_cost(&tx_payload[0..position as usize]);
+    log::info!(
+        "decode transactions from blob, position: {:#?}, l2_data_gas: {:#?} , txs.len(): {:#?}",
+        position,
+        l2_data_gas,
+        txs.len()
+    );
+
+    if let Some(tx) = txs.last() {
+        log_chain_id(tx);
+    }
+    Ok(l2_data_gas)
+}
+
+fn log_chain_id(tx: &TypedTransaction) {
+    match tx {
+        TypedTransaction::Legacy(tx_req) => {
+            log::info!("Legacy.chain_id: {}", tx_req.chain_id.unwrap());
+        }
+        TypedTransaction::Eip2930(tx_req) => {
+            log::info!("Eip2930.chain_id: {}", tx_req.tx.chain_id.unwrap());
+        }
+        TypedTransaction::Eip1559(tx_req) => {
+            log::info!("Eip1559.chain_id: {}", tx_req.chain_id.unwrap());
+        }
+        TypedTransaction::L1MessageTx(tx_req) => {
+            log::info!("L1MessageTx.chain_id: {}", tx_req.chain_id.unwrap());
+        }
+    }
+}
+
+fn extract_txn_num(chunks: Vec<Bytes>) -> Option<u64> {
     if chunks.is_empty() {
         return None;
     }
