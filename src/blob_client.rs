@@ -39,6 +39,39 @@ pub async fn query_blob_tx(hash: &str) -> Option<Value> {
     }
 }
 
+pub async fn query_blob_tx_receipt(hash: &str) -> Option<Value> {
+    let params: serde_json::Value = json!([hash]);
+
+    let rt = tokio::task::spawn_blocking(move || {
+        query_execution_node(&json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": params,
+            "id": 1,
+        }))
+    })
+    .await
+    .unwrap();
+
+    match rt {
+        Some(info) => {
+            // log::info!("query_blob_tx = {:?}", info);
+
+            match serde_json::from_str::<Value>(&info) {
+                Ok(parsed) => return Some(parsed),
+                Err(_) => {
+                    log::error!("deserialize query_blob_tx_receipt failed, hash= {:?}", hash);
+                    return None;
+                }
+            };
+        }
+        None => {
+            log::error!("query ransaction failed");
+            return None;
+        }
+    }
+}
+
 pub async fn query_block(hash: &str) -> Option<Value> {
     let params: serde_json::Value = json!([hash, true]);
 

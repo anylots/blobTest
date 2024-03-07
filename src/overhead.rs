@@ -142,16 +142,33 @@ async fn overhead_inspect(
     log::info!("rollup tx hash: {:#?}", tx_hash);
     log::info!("rollup blocknum = {:#?}", block_num);
 
-    let blob_tx: Option<Value> =
-        blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str()).await;
-    let blob_block: Option<Value> =
-        blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await;
+    let blob_tx: Value =
+        match blob_client::query_blob_tx(hex::encode_prefixed(tx_hash).as_str()).await {
+            Some(r) => r,
+            None => {
+                log::error!("l1_provider.get_transaction_receipt err");
+                return None;
+            }
+        };
+    let blob_block =
+        match blob_client::query_block(hex::encode_prefixed(tx.block_hash.unwrap()).as_str()).await
+        {
+            Some(r) => r,
+            None => {
+                log::error!("l1_provider.get_transaction_receipt err");
+                return None;
+            }
+        };
+
+    let priority_fee = U256::from_str(&blob_tx["result"]["maxPriorityFeePerGas"].to_string())
+        .unwrap_or(U256::from(0));
+
+    let base_fee =
+        U256::from_str(&blob_block["result"]["baseFeePerGas"].to_string()).unwrap_or(U256::from(0));
 
     let indexed_hashs: Vec<IndexedBlobHash> = data_and_hashes_from_txs(
-        &blob_block.unwrap()["result"]["transactions"]
-            .as_array()
-            .unwrap(),
-        &blob_tx.unwrap()["result"],
+        &blob_block["result"]["transactions"].as_array().unwrap(),
+        &blob_tx["result"],
     );
     log::info!("indexed_hashs ={:#?}", indexed_hashs);
     if indexed_hashs.is_empty() {
@@ -254,22 +271,25 @@ async fn overhead_inspect(
         }
     }
 
-    let receipt = match l1_provider.get_transaction_receipt(tx_hash).await {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            log::error!(
-                "l1_provider.get_transaction_receipt is none, tx_hash = {:#?}",
-                tx_hash
-            );
-            return None;
-        }
-        Err(e) => {
-            log::error!("l1_provider.get_transaction_receipt err: {:#?}", e);
-            return None;
-        }
-    };
-    let rollup_gas_used = receipt.gas_used.unwrap_or_default();
-    log::info!("rollup_gas_used: {}", rollup_gas_used);
+    let blob_tx_receipt =
+        match blob_client::query_blob_tx_receipt(hex::encode_prefixed(tx_hash).as_str()).await {
+            Some(r) => r,
+            None => {
+                log::error!("l1_provider.get_transaction_receipt err");
+                return None;
+            }
+        };
+
+    let rollup_gas_used =
+        U256::from_str(&blob_tx_receipt["result"]["gasUsed"].to_string()).unwrap_or(U256::from(0));
+    log::info!("rollup_gas_used: {:?}", rollup_gas_used);
+
+    let blob_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasPrice"].to_string())
+        .unwrap_or(U256::from(0));
+    log::info!("blob_gas_price: {:?}", blob_gas_price);
+
+    let x = blob_gas_price / (base_fee + priority_fee);
+    let ov: U256 = (rollup_gas_used + U256::from(131072) * x - l2_data_gas) / l2_txn;
 
     if rollup_gas_used.is_zero() {
         log::error!(
@@ -280,13 +300,12 @@ async fn overhead_inspect(
     }
 
     //Step4. Calculate overhead
-    let g = rollup_gas_used - 0;
 
     // Set metric
     ORACLE_SERVICE_METRICS.txn_per_batch.set(0.0);
 
     log::info!("overhead inspection result is: {:#?}", 0 as usize);
-    Some(1 as usize)
+    Some(ov.as_usize())
 }
 
 fn decode_chunks(chunks: Vec<Bytes>) -> Option<u64> {
