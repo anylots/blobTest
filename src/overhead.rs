@@ -284,13 +284,6 @@ async fn overhead_inspect(
         U256::from_str(&blob_tx_receipt["result"]["gasUsed"].to_string()).unwrap_or(U256::from(0));
     log::info!("rollup_gas_used: {:?}", rollup_gas_used);
 
-    let blob_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasPrice"].to_string())
-        .unwrap_or(U256::from(0));
-    log::info!("blob_gas_price: {:?}", blob_gas_price);
-
-    let x = blob_gas_price / (base_fee + priority_fee);
-    let ov: U256 = (rollup_gas_used + U256::from(131072) * x - l2_data_gas) / l2_txn;
-
     if rollup_gas_used.is_zero() {
         log::error!(
             "l1_provider.get_transaction_receipt gas_used is None or 0, tx_hash = {:#?}",
@@ -298,14 +291,26 @@ async fn overhead_inspect(
         );
         return None;
     }
+    let blob_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasPrice"].to_string())
+        .unwrap_or(U256::from(0));
+    let effective_gas_price = U256::from_str(&blob_tx_receipt["result"]["blobGasUsed"].to_string())
+        .unwrap_or(U256::from(0));
+    log::info!("blob_gas_price: {:?}", blob_gas_price);
+    log::info!("effective_gas_price: {:?}", effective_gas_price);
 
     //Step4. Calculate overhead
+    let x = blob_gas_price.as_u128() as f64 / effective_gas_price.as_u128() as f64;
+    let ov: u128 = (rollup_gas_used.as_u128() + (131072.0 * x).ceil() as u128
+        - l2_data_gas as u128)
+        / l2_txn as u128;
+
+    log::info!("overhead: {:?}", ov);
 
     // Set metric
     ORACLE_SERVICE_METRICS.txn_per_batch.set(0.0);
 
     log::info!("overhead inspection result is: {:#?}", 0 as usize);
-    Some(ov.as_usize())
+    Some(ov as usize)
 }
 
 fn decode_chunks(chunks: Vec<Bytes>) -> Option<u64> {
